@@ -75,12 +75,17 @@ def main():
     ap.add_argument("url")
     ap.add_argument("--output-root", default=".")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--no-aria2c", action="store_true",
+                    help="禁用 aria2c 多线程下载（默认检测到即启用）")
     args = ap.parse_args()
 
     for tool in ("yt-dlp", "ffmpeg"):
         if not shutil.which(tool):
             sys.exit(f"[error] 未在 PATH 中找到 {tool}")
     print("[preflight] yt-dlp", run(["yt-dlp", "--version"], capture=True).stdout.strip())
+
+    use_aria2c = not args.no_aria2c and shutil.which("aria2c") is not None
+    print(f"[info] 多线程下载(aria2c): {'启用' if use_aria2c else '未启用'}")
 
     meta = load_metadata(args.url)
     title = meta.get("title") or meta.get("id") or "video"
@@ -114,8 +119,12 @@ def main():
     if video.exists() and not args.force:
         print("[skip] video.mp4 已存在")
     else:
-        run(["yt-dlp", "-f", VIDEO_FORMAT, "--merge-output-format", "mp4",
-             "-o", str(proj / "video.%(ext)s"), args.url])
+        dl_cmd = ["yt-dlp", "-f", VIDEO_FORMAT, "--merge-output-format", "mp4",
+                  "--continue", "-o", str(proj / "video.%(ext)s"), args.url]
+        if use_aria2c:
+            dl_cmd[1:1] = ["--downloader", "aria2c",
+                           "--downloader-args", "aria2c:-x16 -s16 -k1M -c"]
+        run(dl_cmd)
         if not video.exists():
             picked = next((p for p in proj.glob("video.*")), None)
             if picked:
