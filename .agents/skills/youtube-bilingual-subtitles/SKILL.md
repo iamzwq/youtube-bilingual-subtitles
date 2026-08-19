@@ -15,19 +15,20 @@ argument-hint: "<YouTube 视频链接>"
 ## 前置条件
 
 - 已安装并配置 PATH：`python`、`yt-dlp`、`ffmpeg`。
-- 首次运行先安装分句依赖：`pip install -r .agents/skills/youtube-bilingual-subtitles/requirements.txt`
+  - Python 命令名跨平台不同：**macOS/Linux 用 `python3`**，**Windows 用 `python`**（下文用 `$PY` 代指，按平台替换）。
+- 首次运行先安装分句依赖：`$PY -m pip install -r .agents/skills/youtube-bilingual-subtitles/requirements.txt`
 - 字体「霞鹜文楷等宽 / LXGW WenKai Mono」建议已安装；未安装时会回退系统默认字体，不影响流程。
 - 仅支持公开可下载、且带有可下载 json3 字幕的视频；无字幕视频会报错退出。
 
 ## 管线总览（脚本 ↔ AI 交替，各阶段幂等可重跑）
 
-设脚本目录为 `SK=.agents/skills/youtube-bilingual-subtitles/scripts`。所有产物落在当前目录下的 `<清洗后标题>/`。
+设脚本目录为 `SK=.agents/skills/youtube-bilingual-subtitles/scripts`，`$PY` 为 python 命令（mac/Linux=`python3`，Windows=`python`）。所有产物落在当前目录下的 `<清洗后标题>/`。
 
-1. 下载：`python $SK/download.py "<URL>"`
-2. 断句：`python $SK/segment.py "<标题>/"`
+1. 下载：`$PY $SK/download.py "<URL>"`
+2. 断句：`$PY $SK/segment.py "<标题>/"`
 3. 翻译（由你，AI，完成，见下）
-4. 生成字幕：`python $SK/build_ass.py "<标题>/"`
-5. 烧录：`python $SK/burn.py "<标题>/"`
+4. 生成字幕：`$PY $SK/build_ass.py "<标题>/"`
+5. 烧录：`$PY $SK/burn.py "<标题>/"`
 
 `download.py` 会在结尾打印实际的项目目录路径 `<标题>/`，后续命令直接复用该路径。
 
