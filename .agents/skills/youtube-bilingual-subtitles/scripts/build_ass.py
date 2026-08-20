@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """由 segments.json + raw_segments.json 生成双语 ASS 字幕。"""
 import argparse
+import difflib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -10,6 +12,10 @@ GAP_GUARD_MS = 10     # 相邻字幕之间保留的最小间隔
 CPS_WARN = 25         # 原文每秒字符数上限（超出阅读吃力）
 CN_CPS_WARN = 12      # 中文每秒字数上限
 MAX_CUE_MS = 8000     # 单条字幕最长时长
+DANGLING_WORDS = {    # cue 不宜以这些词结尾（会割裂短语）
+    "a", "an", "the", "of", "in", "on", "at", "to", "for", "with",
+    "from", "and", "but", "or", "so", "that", "which", "who",
+}
 
 ASS_HEADER = """[Script Info]
 ScriptType: v4.00+
@@ -65,19 +71,45 @@ def validate_coverage(atoms: dict, segments: list) -> None:
             print(f"[warn] atom {label}: 共 {len(data)} 个 → {preview}")
 
 
+def _norm_words(text: str) -> list:
+    text = text.lower().replace("'", "").replace("\u2019", "")   # 撇号直接删除，缩写合并
+    return re.sub(r"[^a-z0-9\s]", " ", text).split()
+
+
+def fidelity_warn(atoms: dict, segments: list) -> None:
+    """校验 source 与原始 atom 词序是否一致（拦 LLM 改词/漏词/加词）。"""
+    drift = 0
+    for seg in segments:
+        a = seg.get("atoms") or []
+        src = (seg.get("source") or "").strip()
+        if not a or not src:
+            continue
+        orig = " ".join(atoms[i]["text"] for i in range(min(a), max(a) + 1) if i in atoms)
+        ow, sw = _norm_words(orig), _norm_words(src)
+        if ow and difflib.SequenceMatcher(None, ow, sw).ratio() < 0.85:
+            drift += 1
+    if drift:
+        print(f"[warn] {drift} 条字幕的 source 与原始词序偏差较大（疑似 LLM 改词/漏词/加词），请核对")
+
+
 def readability_warn(rows: list) -> None:
     """对过长/阅读过快的字幕告警（路线B 由 LLM 控制长度，这里只做兵底提醒）。"""
-    too_long = too_fast = 0
+    too_long = too_fast = dangling = 0
     for start, end, src, cn in rows:
         dur = max((end - start) / 1000, 0.1)
         if end - start > MAX_CUE_MS:
             too_long += 1
         if len(src) / dur > CPS_WARN or (cn and len(cn) / dur > CN_CPS_WARN):
             too_fast += 1
+        words = src.split()
+        if words and words[-1].strip(".,;:!?\"')(").lower() in DANGLING_WORDS:
+            dangling += 1
     if too_long:
         print(f"[warn] {too_long} 条字幕时长 > {MAX_CUE_MS // 1000}s，建议让 LLM 拆短")
     if too_fast:
         print(f"[warn] {too_fast} 条字幕阅读速度过快（超 CPS 阈值），建议让 LLM 拆短/合并")
+    if dangling:
+        print(f"[warn] {dangling} 条字幕以冠词/介词/连词结尾（断句易割裂短语），建议让 LLM 调整")
 
 
 def main():
@@ -96,6 +128,7 @@ def main():
     segments = json.loads(seg_file.read_text(encoding="utf-8"))["segments"]
 
     validate_coverage(atoms, segments)
+    fidelity_warn(atoms, segments)
 
     rows = []
     for seg in segments:

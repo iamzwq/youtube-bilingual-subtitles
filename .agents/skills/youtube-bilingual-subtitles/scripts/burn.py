@@ -9,19 +9,48 @@ from pathlib import Path
 # 仅降不升：源高度 > 1080 才缩放；filtergraph 内逗号需转义
 VIDEO_FILTER = r"scale=w=-2:h=min(1080\,ih),subtitles=subtitle.ass"
 
-ENCODER_ARGS = {
-    "h264_videotoolbox": ["-c:v", "h264_videotoolbox", "-b:v", "6M"],
-    "h264_nvenc": ["-c:v", "h264_nvenc", "-preset", "p5", "-b:v", "6M"],
-    "h264_qsv": ["-c:v", "h264_qsv", "-b:v", "6M"],
-    "h264_amf": ["-c:v", "h264_amf", "-b:v", "6M"],
-    "libx264": ["-c:v", "libx264", "-preset", "medium", "-crf", "20"],
+# 编码器 -> 是否走码率控制（True）。libx264 用 CRF 恒定质量
+ENCODERS = {
+    "h264_videotoolbox": True,
+    "h264_nvenc": True,
+    "h264_qsv": True,
+    "h264_amf": True,
+    "libx264": False,
 }
 
 
 def available_encoders() -> set:
     r = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
                        text=True, capture_output=True)
-    return {name for name in ENCODER_ARGS if name in r.stdout}
+    return {name for name in ENCODERS if name in r.stdout}
+
+
+def probe_video_size(video: Path):
+    """探测宽/高/帧率，失败回退 (1920, 1080, 24)。"""
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height,r_frame_rate",
+             "-of", "csv=p=0", str(video)],
+            capture_output=True, check=True, text=True)
+        w, h, fps = r.stdout.strip().split(",")[:3]
+        num, _, den = fps.partition("/")
+        rate = float(num) / (float(den) if den and float(den) else 1.0)
+        return int(w), int(h), rate or 24.0
+    except Exception:
+        return 1920, 1080, 24.0
+
+
+def encoder_args(encoder: str, bitrate: int) -> list:
+    if not ENCODERS.get(encoder, False):
+        return ["-c:v", "libx264", "-preset", "medium", "-crf", "20"]
+    args = ["-c:v", encoder]
+    if encoder == "h264_nvenc":
+        args += ["-preset", "p5"]
+    args += ["-b:v", str(bitrate),
+             "-maxrate", str(int(bitrate * 1.5)),
+             "-bufsize", str(int(bitrate * 3))]
+    return args
 
 
 def choose_encoder(avail: set) -> str:
@@ -58,10 +87,15 @@ def main():
     out_name = proj.name + ".mp4"
 
     encoder = args.encoder or choose_encoder(available_encoders())
-    print(f"[info] 平台={platform.system()} 选用编码器={encoder}")
+    w, h, fps = probe_video_size(video)
+    out_h = min(1080, h)
+    out_w = round(w * out_h / h) if h else 1920
+    bitrate = max(6_000_000, int(out_w * out_h * fps * 0.1))
+    print(f"[info] 平台={platform.system()} 编码器={encoder} 目标≈{out_w}x{out_h}@{fps:.0f} 码率≈{bitrate // 1000}k")
 
     cmd = ["ffmpeg", "-y", "-i", "video.mp4", "-vf", VIDEO_FILTER,
-           *ENCODER_ARGS[encoder], "-pix_fmt", "yuv420p",
+           "-map", "0:v:0", "-map", "0:a:0?",
+           *encoder_args(encoder, bitrate), "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out_name]
 
     print("[cmd]", " ".join(cmd))
