@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """用 ffmpeg 把 ASS 字幕烧录进视频，缩放到 1080P，并自动选择加速编码器。"""
 import argparse
+import json
 import platform
 import subprocess
 import sys
@@ -83,8 +84,12 @@ def main():
         if not f.exists():
             sys.exit(f"[error] 未找到 {f}")
 
-    # 目录名已是清洗后的标题，直接复用作输出文件名，避免非法字符
-    out_name = proj.name + ".mp4"
+    # 目录名已是清洗后的标题；文件名追加视频 ID（YouTube ID 为安全字符）
+    vid = ""
+    info = proj / "info.json"
+    if info.exists():
+        vid = (json.loads(info.read_text(encoding="utf-8")).get("id") or "").strip()
+    out_name = f"{proj.name} [{vid}].mp4" if vid else proj.name + ".mp4"
 
     encoder = args.encoder or choose_encoder(available_encoders())
     w, h, fps = probe_video_size(video)

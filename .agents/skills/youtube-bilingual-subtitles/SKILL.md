@@ -135,11 +135,11 @@ argument-hint: "<YouTube 视频链接>"
 
 ### 5. 烧录
 
-运行 `burn.py <项目目录>`。它把字幕烧进视频，缩放到 1080P（只降不升），并**自动选择加速编码器**：macOS→`h264_videotoolbox`，Windows→`h264_nvenc/qsv/amf`，否则回退 `libx264`。可加 `--dry-run` 先打印所选编码器与命令。产物：`<标题>.mp4`。
+运行 `burn.py <项目目录>`。它把字幕烧进视频，缩放到 1080P（只降不升），并**自动选择加速编码器**：macOS→`h264_videotoolbox`，Windows→`h264_nvenc/qsv/amf`，否则回退 `libx264`。可加 `--dry-run` 先打印所选编码器与命令。产物：`<标题> [视频ID].mp4`。
 
 ## 最终产物（`<标题>/`）
 
-- `<标题>.mp4`：烧录双语字幕的视频
+- `<标题> [视频ID].mp4`：烧录双语字幕的视频
 - `subtitle.ass`：双语字幕
 - `cover.jpg`：封面图
 - `subtitle.json3`：原始词级字幕
