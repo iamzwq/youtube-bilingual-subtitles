@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""解析词级 json3 字幕，清洗并切分为原子片段(atoms)，输出 raw_segments.json。"""
+"""解析 json3 字幕，清洗并切成细粒度原子(atoms)；语义断句/合并/拆分交由 LLM 完成。"""
 import argparse
 import json
 import re
 import sys
 from pathlib import Path
 
-GAP_MS = 500          # 词间停顿超过该值则切分
-MAX_WORDS = 14        # 单个 atom 最大词数
-MAX_CHARS = 70        # 单个 atom 最大字符数
-MAX_DUR_MS = 6000     # 单个 atom 最大时长
+GAP_MS = 400          # 词间停顿超过该值则切分
+MAX_WORDS = 8         # 单个 atom 最大词数
+MAX_CHARS = 45        # 单个 atom 最大字符数
+MAX_DUR_MS = 3000     # 单个 atom 最大时长
 SENT_END = (".", "!", "?", "。", "！", "？", "…")
 
 
@@ -81,14 +81,19 @@ def atoms_from_words(words) -> list:
     return atoms
 
 
-def split_sentences(text: str):
-    try:
-        import pysbd
-        seg = pysbd.Segmenter(language="en", clean=False)
-        parts = [p.strip() for p in seg.segment(text) if p.strip()]
-        return parts or [text]
-    except Exception:
-        return [text]
+def chunk_text(text: str) -> list:
+    """按最大词数/字符数把一段文本切成细粒度块，便于 LLM 自由断句。"""
+    chunks, cur = [], []
+    for w in text.split():
+        cur.append(w)
+        cur_text = " ".join(cur)
+        if (len(cur) >= MAX_WORDS or len(cur_text) >= MAX_CHARS
+                or cur_text.rstrip().endswith(SENT_END)):
+            chunks.append(cur_text)
+            cur = []
+    if cur:
+        chunks.append(" ".join(cur))
+    return chunks or [text]
 
 
 def atoms_from_events(events: list) -> list:
@@ -103,13 +108,14 @@ def atoms_from_events(events: list) -> list:
         start = ev.get("tStartMs", 0)
         dur = ev.get("dDurationMs") or max(1200, len(text) * 75)
         end = start + dur
-        parts = split_sentences(text)
-        total = sum(len(p) for p in parts) or 1
-        cursor = start
-        for p in parts:
-            span = int((end - start) * len(p) / total)
-            atoms.append({"start": cursor, "end": max(cursor + 400, cursor + span), "text": p})
-            cursor += span
+        chunks = chunk_text(text)
+        total = sum(len(c) for c in chunks) or 1
+        acc, cursor = 0, start
+        for k, c in enumerate(chunks):
+            acc += len(c)
+            boundary = end if k == len(chunks) - 1 else start + round((end - start) * acc / total)
+            atoms.append({"start": cursor, "end": max(cursor + 200, boundary), "text": c})
+            cursor = boundary
     return atoms
 
 

@@ -16,7 +16,7 @@ argument-hint: "<YouTube 视频链接>"
 
 - 已安装并配置 PATH：`python`、`yt-dlp`、`ffmpeg`。
   - Python 命令名跨平台不同：**macOS/Linux 用 `python3`**，**Windows 用 `python`**（下文用 `$PY` 代指，按平台替换）。
-- 首次运行先安装分句依赖：`$PY -m pip install -r .agents/skills/youtube-bilingual-subtitles/requirements.txt`
+- 无需第三方 Python 依赖（脚本仅用标准库；断句与翻译由 LLM 完成）。
 - 字体「霞鹜文楷等宽 / LXGW WenKai Mono」建议已安装；未安装时会回退系统默认字体，不影响流程。
 - 可选：安装 `aria2c` 后，`download.py` 会自动用它做多线程分片 + 断点续传下载（加速）；用 `--no-aria2c` 可关闭。
 - 仅支持公开可下载、且带有可下载 json3 字幕的视频；无字幕视频会报错退出。
@@ -57,38 +57,45 @@ argument-hint: "<YouTube 视频链接>"
 
 ### 2. 断句
 
-运行 `segment.py <项目目录>`。它会解析 `subtitle.json3`，清洗滚动重复词，按停顿/时长/长度切成“原子片段（atoms）”，输出 `raw_segments.json`：
+运行 `segment.py <项目目录>`。它会解析 `subtitle.json3`，清洗滚动重复词，切成**细粒度原子片段（atoms，每个约几个词）**，输出 `raw_segments.json`：
 
 ```json
 { "source_mode": "word|event",
-  "atoms": [ { "i": 0, "start": 1200, "end": 2600, "text": "so today were going to" }, ... ] }
+  "atoms": [ { "i": 0, "start": 1200, "end": 2000, "text": "so today" }, { "i": 1, "start": 2000, "end": 2600, "text": "were going to" }, ... ] }
 ```
 
-`start`/`end` 为毫秒。自动字幕通常无标点，atoms 是较碎的短语，交由你在下一步做语义断句。
+`start`/`end` 为毫秒。atoms 故意切得很碎、**不承担语义断句**——语义断句、标点恢复、长句拆分、短句合并全部由你在下一步完成。atoms 越碎，你切分 cue 的自由度越高。
 
 ### 3. 翻译（AI 执行——这是你的职责）
 
-读取 `<标题>/raw_segments.json` 与 `<标题>/info.json`。以视频标题、简介为上下文，产出 `<标题>/segments.json`：
+读取 `<标题>/raw_segments.json` 与 `<标题>/info.json`。以视频标题、简介为上下文，把细碎 atoms 重新组织成一条条字幕（cue），产出 `<标题>/segments.json`：
 
 ```json
 {
   "segments": [
     {
-      "atoms": [0, 1, 2],
+      "atoms": [0, 2],
       "source": "So today, we're going to build a small app.",
       "translation": "那么今天，我们要做一个小应用。"
     },
-    { "atoms": [3], "source": "[Music]", "translation": "" }
+    { "atoms": [3, 3], "source": "It won't take long.", "translation": "不会花太久。" },
+    { "atoms": [4, 4], "source": "[Music]", "translation": "" }
   ]
 }
 ```
 
 要求：
 
-- **分组而非改时间**：每个 segment 用 `atoms` 列出它包含的原子片段**索引**（连续、覆盖全部、不重叠、不遗漏）。时间戳会由脚本根据首尾 atom 自动推导，你无需计算时间。
-- **恢复标点 + 语义断句**：把碎片重组成完整句子，`source` 写恢复大小写与标点后的原文；一个语义句可跨多个 atom；尽量避免过长或半截句。
+- **用 atom 区间表示时间，不要自己算时间**：每个 cue 的 `atoms` 写 `[起始索引, 结束索引]`（含两端的连续区间）。脚本按 `atoms[起始].start` 到 `atoms[结束].end` 推导时间。若区间只含一个 atom，写 `[i, i]`。
+- **完整覆盖、不重叠、不遗漏**：所有 cue 的 atom 区间必须首尾相接地覆盖全部 atoms（前一个 cue 的结束索引 + 1 = 下一个 cue 的起始索引）。
+- **语义断句（核心）**：
+  - 一个 cue 只放**一句完整的话**；**绝不要把两句完整的话塞进同一个 cue**。
+  - **长句要拆**：一句话太长时拆成多个 cue，在从句/连词/语义停顿处切，别切在短语中间（如冠词+名词、介词+宾语不要拆开）。
+  - **碎句要合**：把过短的 atom 合并成通顺的一句。
+  - `source` 写恢复大小写与标点后的原文。
+- **长度上限（可读性）**：单个 cue 原文尽量 ≤ ~70 字符、中文 ≤ ~28 字（约两行）；超过就再拆成多个 cue。
 - **翻译**：`translation` 为地道中文，保留专有名词/数字；结合标题与简介保证术语一致。
-- **分批处理**：每批约 30–50 句读入、翻译、增量写回，避免上下文过长；跨批保持术语统一。
+- **分批处理**：每批约 30–50 个 cue 读入、翻译、增量写回，避免上下文过长；跨批保持术语统一。
 - **非语音内容**（如 `[Music]`、`[Applause]`、`♪`）：`translation` 留空字符串。
 - 严格输出上述 JSON 结构，UTF-8，无多余注释。
 
