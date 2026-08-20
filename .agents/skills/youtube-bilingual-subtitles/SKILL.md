@@ -144,3 +144,4 @@ argument-hint: "<YouTube 视频链接>"
 ## 参考
 
 - ASS 样式细节见 [ass-style.md](./references/ass-style.md)
+- 断句/原子化设计取舍见 [segmentation-design.md](./references/segmentation-design.md)
