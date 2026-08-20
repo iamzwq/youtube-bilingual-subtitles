@@ -18,7 +18,8 @@ YCbCr Matrix: TV.601
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Bilingual,霞鹜文楷等宽,36,&H00FFFFFF,&H000000FF,&H26000000,&H00000000,0,0,0,0,100,100,0,0,3,6,0,2,80,80,60,1
+Style: CN,霞鹜文楷等宽,60,&H00FFFFFF,&H000000FF,&H26000000,&H00000000,0,0,0,0,100,100,0,0,3,6,0,2,80,80,131,1
+Style: EN,霞鹜文楷等宽,36,&H00FFFFFF,&H000000FF,&H26000000,&H00000000,0,0,0,0,100,100,0,0,3,6,0,2,80,80,60,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -73,13 +74,12 @@ def main():
 
     lines = [ASS_HEADER]
     for start, end, src, cn in rows:
+        st, en = ts(start), ts(end)
+        # 中文与原文各用独立事件/样式，底部堆叠留间隙，避免两个半透明黑框重叠变深
         if cn:
-            text = "{\\fs60}" + esc(cn) + "\\N{\\fs36}" + esc(src)
-        elif src:
-            text = "{\\fs36}" + esc(src)
-        else:
-            continue
-        lines.append(f"Dialogue: 0,{ts(start)},{ts(end)},Bilingual,,0,0,0,,{text}")
+            lines.append(f"Dialogue: 0,{st},{en},CN,,0,0,0,,{esc(cn)}")
+        if src:
+            lines.append(f"Dialogue: 0,{st},{en},EN,,0,0,0,,{esc(src)}")
 
     out = proj / "subtitle.ass"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
