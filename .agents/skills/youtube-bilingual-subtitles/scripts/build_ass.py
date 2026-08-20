@@ -7,6 +7,9 @@ from pathlib import Path
 
 MIN_DUR_MS = 1000     # 每条字幕最短显示时长
 GAP_GUARD_MS = 10     # 相邻字幕之间保留的最小间隔
+CPS_WARN = 25         # 原文每秒字符数上限（超出阅读吃力）
+CN_CPS_WARN = 12      # 中文每秒字数上限
+MAX_CUE_MS = 8000     # 单条字幕最长时长
 
 ASS_HEADER = """[Script Info]
 ScriptType: v4.00+
@@ -40,6 +43,43 @@ def esc(text: str) -> str:
                 .replace("\\", "＼").replace("\r", "").replace("\n", " ").strip())
 
 
+def validate_coverage(atoms: dict, segments: list) -> None:
+    """校验 LLM 的 atom 区间是否连续覆盖全部 atoms，发现缺口/重叠/越界即告警。"""
+    all_idx = set(atoms)
+    seen, out_of_range = {}, set()
+    for seg in segments:
+        a = seg.get("atoms") or []
+        if not a:
+            continue
+        for i in range(min(a), max(a) + 1):
+            seen[i] = seen.get(i, 0) + 1
+            if i not in all_idx:
+                out_of_range.add(i)
+    missing = sorted(all_idx - set(seen))
+    overlap = sorted(i for i, c in seen.items() if c > 1)
+    for label, data in (("缺失(内容会丢)", missing),
+                        ("重叠", overlap),
+                        ("越界索引", sorted(out_of_range))):
+        if data:
+            preview = ", ".join(map(str, data[:10])) + (" ..." if len(data) > 10 else "")
+            print(f"[warn] atom {label}: 共 {len(data)} 个 → {preview}")
+
+
+def readability_warn(rows: list) -> None:
+    """对过长/阅读过快的字幕告警（路线B 由 LLM 控制长度，这里只做兵底提醒）。"""
+    too_long = too_fast = 0
+    for start, end, src, cn in rows:
+        dur = max((end - start) / 1000, 0.1)
+        if end - start > MAX_CUE_MS:
+            too_long += 1
+        if len(src) / dur > CPS_WARN or (cn and len(cn) / dur > CN_CPS_WARN):
+            too_fast += 1
+    if too_long:
+        print(f"[warn] {too_long} 条字幕时长 > {MAX_CUE_MS // 1000}s，建议让 LLM 拆短")
+    if too_fast:
+        print(f"[warn] {too_fast} 条字幕阅读速度过快（超 CPS 阈值），建议让 LLM 拆短/合并")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("project")
@@ -54,6 +94,8 @@ def main():
 
     atoms = {a["i"]: a for a in json.loads(raw_file.read_text(encoding="utf-8"))["atoms"]}
     segments = json.loads(seg_file.read_text(encoding="utf-8"))["segments"]
+
+    validate_coverage(atoms, segments)
 
     rows = []
     for seg in segments:
@@ -72,6 +114,8 @@ def main():
         if rows[i][1] > rows[i + 1][0] - GAP_GUARD_MS:
             rows[i][1] = max(rows[i][0] + 1, rows[i + 1][0] - GAP_GUARD_MS)
 
+    readability_warn(rows)
+
     lines = [ASS_HEADER]
     for start, end, src, cn in rows:
         st, en = ts(start), ts(end)
@@ -83,8 +127,9 @@ def main():
 
     out = proj / "subtitle.ass"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    burn_script = Path(__file__).with_name("burn.py")
     print(f"[done] {out} — {len(rows)} 条字幕")
-    print(f"[next] python burn.py \"{proj}\"")
+    print(f'[next] 烧录（用 python3/python 运行）: "{burn_script}" "{proj}"')
 
 
 if __name__ == "__main__":

@@ -51,6 +51,7 @@ argument-hint: "<YouTube 视频链接>"
 
 - 校验工具、拉取元数据（标题、简介、语言）；
 - 下载 ≤1080P 的 mp4（`video.mp4`）、封面（`cover.jpg`）、词级 json3 字幕（`subtitle.json3`）、元数据（`info.json`）；
+- 字幕**默认优先自动字幕**（含词级时间戳，断句更精准）；加 `--prefer-manual` 可改为优先人工字幕；
 - 若找不到可下载的 json3 字幕，直接报错退出。
 
 已存在的产物会跳过（除非加 `--force`）。

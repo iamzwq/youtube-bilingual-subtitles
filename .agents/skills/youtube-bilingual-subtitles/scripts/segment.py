@@ -26,25 +26,44 @@ def has_word_timing(events: list) -> bool:
     return False
 
 
+def _seam_overlap(tail: list, head: list, maxw: int = 40) -> int:
+    """返回 tail 的最长后缀与 head 最长前缀相等的长度（用于抑制滚动字幕重复）。"""
+    m = min(len(tail), len(head), maxw)
+    for k in range(m, 0, -1):
+        if tail[-k:] == head[:k]:
+            return k
+    return 0
+
+
 def collect_words(events: list):
-    tokens = []
+    stream, stream_words = [], []   # 并行：原始带空格 token / 归一化词
     for ev in events:
         segs = ev.get("segs")
         if not segs:
             continue
         base = ev.get("tStartMs", 0)
+        ev_tokens, ev_words = [], []
         for s in segs:
-            text = s.get("utf8", "")
-            if not text or text == "\n":
+            raw = s.get("utf8", "")
+            if not raw or raw == "\n":
                 continue
-            tokens.append((base + s.get("tOffsetMs", 0), text))
+            w = raw.strip()
+            if not w:
+                continue
+            ev_tokens.append((base + s.get("tOffsetMs", 0), raw))
+            ev_words.append(w)
+        if not ev_tokens:
+            continue
+        k = _seam_overlap(stream_words, ev_words)   # 跳过与已累积尾部重复的滚动前缀
+        stream.extend(ev_tokens[k:])
+        stream_words.extend(ev_words[k:])
     seen, uniq = set(), []
-    for ms, text in tokens:
-        key = (ms, text)
+    for (ms, raw), w in zip(stream, stream_words):
+        key = (ms, w)
         if key in seen:
             continue
         seen.add(key)
-        uniq.append((ms, text))
+        uniq.append((ms, raw))
     uniq.sort(key=lambda x: x[0])
     return uniq
 
