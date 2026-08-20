@@ -92,7 +92,8 @@ def atoms_from_words(words) -> list:
 
     for i, a in enumerate(atoms):
         nxt = atoms[i + 1]["start"] if i + 1 < len(atoms) else None
-        est = a["start"] + max(1000, len(a["text"]) * 75)
+        # 词级模式下贴近最后一个词的真实时刻（补一个词的尾音），并保底最短时长
+        est = max(a["_last"] + 400, a["start"] + 1000)
         a["end"] = min(nxt, est) if nxt else est
         if a["end"] <= a["start"]:
             a["end"] = a["start"] + 800

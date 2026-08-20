@@ -1,6 +1,6 @@
 ---
 name: youtube-bilingual-subtitles
-description: "制作 YouTube 双语（中文+原文）字幕视频。当用户说“制作<youtube链接>双语字幕视频”、“给这个 YouTube 视频加中文双语字幕”、“bilingual subtitles for youtube”等类似请求时使用。流程：yt-dlp 下载视频/封面/词级 json3 字幕 → 清洗断句 → AI 恢复标点并翻译成中文 → 生成 ASS 双语字幕 → ffmpeg 烧录 1080P 视频。"
+description: "制作 YouTube 双语（中文+原文）字幕视频。当用户说“制作<youtube链接>双语字幕视频”、“给这个 YouTube 视频加中文双语字幕”、“bilingual subtitles for youtube”等类似请求时使用。流程：yt-dlp 下载视频/封面/词级 json3 字幕 → 清洗断句 → AI 断句并翻译成中文 → 生成 ASS 双语字幕 → ffmpeg 烧录 1080P 视频。"
 argument-hint: "<YouTube 视频链接>"
 ---
 
@@ -58,7 +58,7 @@ argument-hint: "<YouTube 视频链接>"
 
 - 校验工具、拉取元数据（标题、简介、语言）；
 - 下载 ≤1080P 的 mp4（`video.mp4`）、封面（`cover.jpg`）、词级 json3 字幕（`subtitle.json3`）、元数据（`info.json`）；
-- 字幕**默认优先自动字幕**（含词级时间戳，断句更精准）；加 `--prefer-manual` 可改为优先人工字幕；
+- 字幕**始终优先自动字幕**（含词级时间戳，断句更精准），仅当其缺失时才回退人工字幕；
 - 若找不到可下载的 json3 字幕，直接报错退出。
 
 已存在的产物会跳过（除非加 `--force`）。
@@ -72,7 +72,7 @@ argument-hint: "<YouTube 视频链接>"
   "atoms": [ { "i": 0, "start": 1200, "end": 2000, "text": "so today" }, { "i": 1, "start": 2000, "end": 2600, "text": "were going to" }, ... ] }
 ```
 
-`start`/`end` 为毫秒。atoms 故意切得很碎、**不承担语义断句**——语义断句、标点恢复、长句拆分、短句合并全部由你在下一步完成。atoms 越碎，你切分 cue 的自由度越高。
+`start`/`end` 为毫秒。atoms 故意切得很碎、**不承担语义断句**——语义断句、长句拆分、短句合并全部由你在下一步完成。atoms 越碎，你切分 cue 的自由度越高。
 
 ### 3. 翻译（AI 执行——这是你的职责）
 
@@ -94,21 +94,19 @@ argument-hint: "<YouTube 视频链接>"
 
 #### 3b. 断句 + 翻译（产出 `segments.json`）
 
-读取 `raw_segments.json`、`info.json` 与上一步的 `glossary.json`，把细碎 atoms 重新组织成一条条字幕（cue），产出 `<标题>/segments.json`：
+读取 `raw_segments.json`、`info.json` 与上一步的 `glossary.json`，把细碎 atoms 重新组织成一条条字幕（cue），产出 `<标题>/segments.json`。**你只决定“断句”和“翻译”：英文原文行由脚本按 atom 逐词重建，你无需输出英文**：
 
 ```json
 {
   "segments": [
-    {
-      "atoms": [0, 2],
-      "source": "So today, we're going to build a small app.",
-      "translation": "那么今天，我们要做一个小应用。"
-    },
-    { "atoms": [3, 3], "source": "It won't take long.", "translation": "不会花太久。" },
-    { "atoms": [4, 4], "source": "[Music]", "translation": "" }
+    { "atoms": [0, 2], "translation": "那么今天，我们要做一个小应用。" },
+    { "atoms": [3, 3], "translation": "不会花太久。" },
+    { "atoms": [4, 4], "translation": "" }
   ]
 }
 ```
+
+> 英文行 = 该区间 atom 文本逐词拼接（与原字幕/音频完全一致；自动字幕通常为小写无标点，属正常）。
 
 要求：
 
@@ -119,8 +117,7 @@ argument-hint: "<YouTube 视频链接>"
   - **长句要拆**：一句话太长时拆成多个 cue，优先在句号/问号/叹号后断，其次在逗号/分号/冒号处断，或在连词（and/but/or/so/because/when/while/if/which/that）**之前**断。
   - **不要拆碎短语**：每个 cue **不要以这些词结尾**（冠词 a/an/the、介词 of/in/on/at/to/for/with/from、连词 and/but/or/so、关系词 that/which/who）；也**不要以介词/冠词开头**（除非它是整句第一个词）。
   - **碎句要合**：把过短片段（≤3 词且语法上延续上下句）并入相邻合理的一侧；但**章节标题**可保留为独立短条。
-  - **长度目标**：每条 8–12 词（存在自然边界时），硬上限 15 词，每条 2–5 秒。
-  - `source` 写恢复大小写与标点后的原文：**只能恢复大小写/标点/缩写（we're、won't），绝不能改写、增删、替换任何单词**（数字/专名/缩略语也保持原样，逐词忠于原字幕）。
+  - **长度目标**：每条 8–12 词（存在自然边界时），硬上限 15 词，每条 2–5 秒。（词数依据 atom 文本判断）
 - **翻译**：`translation` 为地道中文，保留专有名词/数字（长度以英文词数为准，中文无需单独限字数）。
 - **术语一致**：翻译时严格套用 `glossary.json` 里的固定译法；遇到表中术语一律用表中的中文。
 - **分批处理 + 跨批上下文**：每批约 30–50 个 cue 读入、翻译、增量写回；每批开始时带上 `glossary.json` 和**上一批最后 1–2 条 cue** 作为上下文，保证批与批之间术语与语气连贯。

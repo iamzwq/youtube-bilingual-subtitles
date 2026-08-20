@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """由 segments.json + raw_segments.json 生成双语 ASS 字幕。"""
 import argparse
-import difflib
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -71,27 +69,6 @@ def validate_coverage(atoms: dict, segments: list) -> None:
             print(f"[warn] atom {label}: 共 {len(data)} 个 → {preview}")
 
 
-def _norm_words(text: str) -> list:
-    text = text.lower().replace("'", "").replace("\u2019", "")   # 撇号直接删除，缩写合并
-    return re.sub(r"[^a-z0-9\s]", " ", text).split()
-
-
-def fidelity_warn(atoms: dict, segments: list) -> None:
-    """校验 source 与原始 atom 词序是否一致（拦 LLM 改词/漏词/加词）。"""
-    drift = 0
-    for seg in segments:
-        a = seg.get("atoms") or []
-        src = (seg.get("source") or "").strip()
-        if not a or not src:
-            continue
-        orig = " ".join(atoms[i]["text"] for i in range(min(a), max(a) + 1) if i in atoms)
-        ow, sw = _norm_words(orig), _norm_words(src)
-        if ow and difflib.SequenceMatcher(None, ow, sw).ratio() < 0.85:
-            drift += 1
-    if drift:
-        print(f"[warn] {drift} 条字幕的 source 与原始词序偏差较大（疑似 LLM 改词/漏词/加词），请核对")
-
-
 def readability_warn(rows: list) -> None:
     """对过长/阅读过快的字幕告警（路线B 由 LLM 控制长度，这里只做兵底提醒）。"""
     too_long = too_fast = dangling = 0
@@ -128,18 +105,19 @@ def main():
     segments = json.loads(seg_file.read_text(encoding="utf-8"))["segments"]
 
     validate_coverage(atoms, segments)
-    fidelity_warn(atoms, segments)
 
     rows = []
     for seg in segments:
         idx = [i for i in seg.get("atoms", []) if i in atoms]
         if not idx:
             continue
-        start = min(atoms[i]["start"] for i in idx)
-        end = max(atoms[i]["end"] for i in idx)
+        lo, hi = min(idx), max(idx)
+        start, end = atoms[lo]["start"], atoms[hi]["end"]
         if end - start < MIN_DUR_MS:
             end = start + MIN_DUR_MS
-        rows.append([start, end, (seg.get("source") or "").strip(),
+        # 英文原文由脚本按 atom 逐词重建，保证与原字幕逐词一致
+        src = " ".join(atoms[i]["text"] for i in range(lo, hi + 1) if i in atoms)
+        rows.append([start, end, " ".join(src.split()),
                      (seg.get("translation") or "").strip()])
 
     rows.sort(key=lambda r: r[0])

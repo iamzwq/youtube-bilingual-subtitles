@@ -53,12 +53,10 @@ def pick_language(meta: dict):
     return None
 
 
-def download_subtitle(url: str, lang: str, proj: Path, prefer_manual: bool = False) -> bool:
-    """默认优先自动字幕（含词级时间，利于精确断句），回退手动字幕；--prefer-manual 反之。"""
+def download_subtitle(url: str, lang: str, proj: Path) -> bool:
+    """始终优先自动字幕（含词级时间，利于精确断句），仅在其缺失时回退手动字幕。"""
     target = proj / "subtitle.json3"
-    flags = (["--write-subs", "--write-auto-subs"] if prefer_manual
-             else ["--write-auto-subs", "--write-subs"])
-    for flag in flags:
+    for flag in ("--write-auto-subs", "--write-subs"):
         for f in proj.glob("sub.*.json3"):
             f.unlink()
         run(["yt-dlp", flag, "--sub-langs", lang, "--sub-format",
@@ -79,8 +77,6 @@ def main():
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--no-aria2c", action="store_true",
                     help="禁用 aria2c 多线程下载（默认检测到即启用）")
-    ap.add_argument("--prefer-manual", action="store_true",
-                    help="优先手动字幕（默认优先自动字幕以获得词级时间）")
     args = ap.parse_args()
 
     for tool in ("yt-dlp", "ffmpeg"):
@@ -116,7 +112,7 @@ def main():
     sub = proj / "subtitle.json3"
     if sub.exists() and not args.force:
         print("[skip] subtitle.json3 已存在")
-    elif not download_subtitle(args.url, lang, proj, args.prefer_manual):
+    elif not download_subtitle(args.url, lang, proj):
         sys.exit("[error] 未找到可下载的 json3 字幕，无法继续（不支持无字幕视频）。")
 
     video = proj / "video.mp4"
