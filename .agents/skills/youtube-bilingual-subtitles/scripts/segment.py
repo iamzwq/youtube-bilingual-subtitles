@@ -35,8 +35,16 @@ def _seam_overlap(tail: list, head: list, maxw: int = 40) -> int:
     return 0
 
 
+def join_words(words) -> str:
+    """把归一化词按单空格拼回，标点前不留空、左括号后不留空。"""
+    text = " ".join(words)
+    text = re.sub(r"\s+([,.!?;:)\]}%])", r"\1", text)
+    text = re.sub(r"([(\[{])\s+", r"\1", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def collect_words(events: list):
-    stream, stream_words = [], []   # 并行：原始带空格 token / 归一化词
+    stream, stream_words = [], []   # 并行：(ms, 归一化词) / 仅归一化词（用于滚动去重）
     for ev in events:
         segs = ev.get("segs")
         if not segs:
@@ -44,13 +52,10 @@ def collect_words(events: list):
         base = ev.get("tStartMs", 0)
         ev_tokens, ev_words = [], []
         for s in segs:
-            raw = s.get("utf8", "")
-            if not raw or raw == "\n":
-                continue
-            w = raw.strip()
+            w = s.get("utf8", "").strip()
             if not w:
                 continue
-            ev_tokens.append((base + s.get("tOffsetMs", 0), raw))
+            ev_tokens.append((base + s.get("tOffsetMs", 0), w))
             ev_words.append(w)
         if not ev_tokens:
             continue
@@ -58,12 +63,12 @@ def collect_words(events: list):
         stream.extend(ev_tokens[k:])
         stream_words.extend(ev_words[k:])
     seen, uniq = set(), []
-    for (ms, raw), w in zip(stream, stream_words):
+    for ms, w in stream:
         key = (ms, w)
         if key in seen:
             continue
         seen.add(key)
-        uniq.append((ms, raw))
+        uniq.append((ms, w))
     uniq.sort(key=lambda x: x[0])
     return uniq
 
@@ -74,13 +79,13 @@ def atoms_from_words(words) -> list:
     def flush():
         if not cur:
             return
-        text = re.sub(r"\s+", " ", "".join(t for _, t in cur)).strip()
+        text = join_words(t for _, t in cur)
         if text:
             atoms.append({"start": cur[0][0], "_last": cur[-1][0], "text": text})
 
     for ms, text in words:
         if cur:
-            cur_text = "".join(t for _, t in cur)
+            cur_text = join_words([t for _, t in cur])
             if (ms - cur[-1][0] > GAP_MS or len(cur) >= MAX_WORDS
                     or len(cur_text) >= MAX_CHARS
                     or ms - cur[0][0] >= MAX_DUR_MS

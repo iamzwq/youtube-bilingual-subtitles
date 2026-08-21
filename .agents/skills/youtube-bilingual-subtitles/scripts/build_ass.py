@@ -10,6 +10,11 @@ GAP_GUARD_MS = 10     # 相邻字幕之间保留的最小间隔
 CPS_WARN = 25         # 原文每秒字符数上限（超出阅读吃力）
 CN_CPS_WARN = 12      # 中文每秒字数上限
 MAX_CUE_MS = 8000     # 单条字幕最长时长
+# 用固定锚点定位，禁用 libass 碰撞重排（否则原文折行时会与中文互换上下）
+CENTER_X = 960        # PlayResX 1920 的水平中点
+CN_BOTTOM_Y = 949     # 中文行底边锚点（\an2，向上生长）
+BOX_OVERLAP = 6       # 中文底框与原文顶框的重叠像素：>0 两条黑底连成一体无缝隙，<0 留间隙
+EN_TOP_Y = CN_BOTTOM_Y + BOX_OVERLAP  # 原文行顶边锚点（\an8，向下生长）
 DANGLING_WORDS = {    # cue 不宜以这些词结尾（会割裂短语）
     "a", "an", "the", "of", "in", "on", "at", "to", "for", "with",
     "from", "and", "but", "or", "so", "that", "which", "who",
@@ -130,11 +135,14 @@ def main():
     lines = [ASS_HEADER]
     for start, end, src, cn in rows:
         st, en = ts(start), ts(end)
-        # 中文与原文各用独立事件/样式，底部堆叠留间隙，避免两个半透明黑框重叠变深
+        # 中文与原文各用独立事件/样式，用 \pos 固定锚点：中文底边向上生长、原文顶边向下生长，
+        # 永远中文在上原文在下，且 \pos 会禁用 libass 碰撞重排（原文折行时不再与中文互换）
         if cn:
-            lines.append(f"Dialogue: 0,{st},{en},CN,,0,0,0,,{esc(cn)}")
+            lines.append(f"Dialogue: 0,{st},{en},CN,,0,0,0,,"
+                         f"{{\\an2\\pos({CENTER_X},{CN_BOTTOM_Y})}}{esc(cn)}")
         if src:
-            lines.append(f"Dialogue: 0,{st},{en},EN,,0,0,0,,{esc(src)}")
+            lines.append(f"Dialogue: 0,{st},{en},EN,,0,0,0,,"
+                         f"{{\\an8\\pos({CENTER_X},{EN_TOP_Y})}}{esc(src)}")
 
     out = proj / "subtitle.ass"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
