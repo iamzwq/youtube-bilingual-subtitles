@@ -70,7 +70,10 @@ argument-hint: "<YouTube 视频链接>"
 
 ```json
 { "source_mode": "word|event",
-  "atoms": [ { "i": 0, "start": 1200, "end": 2000, "text": "so today" }, { "i": 1, "start": 2000, "end": 2600, "text": "were going to" }, ... ] }
+  "atoms": [
+    { "i": 0, "start": 80, "end": 1599, "text": "Today's video is sponsored by Hexrays." },
+    { "i": 1, "start": 1839, "end": 3679, "text": "Whether you're a cyber security analyst or somebody" },
+    { "i": 2, "start": 3679, "end": 5759, "text": "who likes to program, learning how to reverse" }, ... ] }
 ```
 
 `start`/`end` 为毫秒。atoms 故意切得很碎、**不承担语义断句**——语义断句、长句拆分、短句合并全部由你在下一步完成。atoms 越碎，你切分 cue 的自由度越高。
@@ -84,8 +87,9 @@ argument-hint: "<YouTube 视频链接>"
 ```json
 {
   "terms": [
-    { "src": "self-supervised learning", "zh": "自监督学习" },
-    { "src": "SFT", "zh": "监督微调（SFT）" }
+    { "src": "reverse engineering", "zh": "逆向工程" },
+    { "src": "CTF", "zh": "夺旗赛（CTF）" },
+    { "src": "binary", "zh": "二进制文件" }
   ]
 }
 ```
@@ -100,14 +104,14 @@ argument-hint: "<YouTube 视频链接>"
 ```json
 {
   "segments": [
-    { "atoms": [0, 2], "translation": "那么今天，我们要做一个小应用。" },
-    { "atoms": [3, 3], "translation": "不会花太久。" },
-    { "atoms": [4, 4], "translation": "" }
+    { "atoms": [24, 25], "translation": "flag 能给我们积分，而积分让我很有成就感。" },
+    { "atoms": [26, 27], "translation": "那么，我们下载这个文件，看看会惹上什么麻烦。" },
+    { "atoms": [28, 29], "translation": "那么，什么是逆向工程呢？" }
   ]
 }
 ```
 
-> 英文行 = 该区间 atom 文本逐词拼接（与原字幕/音频完全一致；自动字幕通常为小写无标点，属正常）。
+> 英文行 = 该区间 atom 文本逐词拼接（与原字幕/音频完全一致）。上例的 `[24,25]`/`[26,27]` 各是一句完整的话，各自单独成 cue；`[28,29]` 把碎片 `right?`（≤3 词）并入前一句。字幕大小写/标点随源而定：带词级时间戳的自动字幕有时为小写无标点，属正常。
 
 要求：
 
